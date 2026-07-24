@@ -49,6 +49,12 @@ This workspace contains two independent Soroban contracts:
 
 Both are `no_std`, built against **`soroban-sdk 21`**.
 
+> **Integrating from `octraban_backend` or `octraban_frontend`?** See
+> [`docs/INTERFACE.md`](./docs/INTERFACE.md) for the full public interface —
+> function signatures, argument/return types, custom types, and error codes
+> for both contracts — and [`docs/EVENTS.md`](./docs/EVENTS.md) for event
+> topics and payload shapes.
+
 ---
 
 ## 🧩 `explorer` — Registry & Event Ledger
@@ -144,7 +150,8 @@ Includes a property-based test suite (`test.rs`).
 │   ├── src/lib.rs
 │   └── src/test.rs
 ├── docs/
-│   └── EVENTS.md        # explorer event topics, payloads, and versioning
+│   ├── EVENTS.md        # explorer event topics, payloads, and versioning
+│   └── INTERFACE.md     # full public interface: functions, types, errors
 ├── build-and-deploy.sh  # build → MVP-lower (wasm-opt) → deploy
 ├── DEPLOYMENTS.md        # live contract IDs + reproduction steps
 ├── LICENSE / NOTICE

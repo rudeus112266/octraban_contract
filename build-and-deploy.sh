@@ -115,7 +115,8 @@ WASM_OPT_FLAGS=(
   -Oz
 )
 
-# crate dir : produced wasm file name (as emitted by cargo)
+# crate dir : produced wasm file name (as emitted by cargo, now shared under
+# the workspace-root target/ dir)
 declare -A CRATES=(
   [explorer]="octraban_contract.wasm"
   [ticket]="ticket.wasm"
@@ -125,11 +126,14 @@ mkdir -p dist
 echo "Identity: ${IDENTITY}   Network: ${NETWORK}"
 echo
 
+echo "━━━ building workspace ━━━"
+cargo build --release --target wasm32-unknown-unknown --workspace
+echo
+
 for crate in "${!CRATES[@]}"; do
   raw="${CRATES[$crate]}"
   echo "━━━ ${crate} ━━━"
-  ( cd "${crate}" && cargo build --release --target wasm32-unknown-unknown )
-  src="${crate}/target/wasm32-unknown-unknown/release/${raw}"
+  src="target/wasm32-unknown-unknown/release/${raw}"
 
   out="dist/${crate}.wasm"
   echo "  lowering to MVP-compatible feature set → ${out}"

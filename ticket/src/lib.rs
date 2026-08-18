@@ -1,6 +1,5 @@
 #![no_std]
 
-
 // Unit / property / snapshot / stress / gas tests.
 #[cfg(test)]
 mod test;

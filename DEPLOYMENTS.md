@@ -25,7 +25,7 @@ features into every wasm it builds — including the standard library — and
 The working pipeline is therefore **build normally, then lower with `wasm-opt`**:
 
 ```
-cargo build --release --target wasm32-unknown-unknown
+cargo build --release --target wasm32-unknown-unknown --workspace
 wasm-opt <in.wasm> -o <out.wasm> \
   --disable-reference-types --disable-multivalue \
   --enable-bulk-memory --enable-bulk-memory-opt \

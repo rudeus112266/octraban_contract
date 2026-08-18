@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use soroban_explorer_contract::{ContractMeta, ExplorerContract, ExplorerContractClient};
+use octraban_contract::{ContractMeta, ExplorerContract, ExplorerContractClient};
 use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, String, Vec};
 
 // Snapshot testing using insta to catch unintended state mutations

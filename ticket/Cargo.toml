@@ -1,6 +1,3 @@
-[workspace]
-exclude = ["fuzz"]
-
 [package]
 name = "ticket"
 version = "0.1.0"
@@ -22,19 +19,3 @@ proptest-derive  = "0.4"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
-
-[profile.release]
-opt-level        = "z"
-overflow-checks  = true
-debug            = 0
-strip            = "symbols"
-debug-assertions = false
-panic            = "abort"
-codegen-units    = 1
-lto              = true
-
-# Separate profile used by cargo-fuzz.
-[profile.fuzz]
-inherits        = "dev"
-opt-level       = 1
-overflow-checks = true

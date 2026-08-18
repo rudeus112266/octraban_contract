@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use soroban_explorer_contract::{EventInput, ExplorerContract, ExplorerContractClient};
+use octraban_contract::{EventInput, ExplorerContract, ExplorerContractClient};
 use soroban_sdk::{testutils::Address as _, Address, Bytes, BytesN, Env, String, Vec};
 
 // Integration tests testing multi-contract scenarios

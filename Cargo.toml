@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members  = ["explorer", "ticket"]
+exclude  = ["ticket/fuzz"]
+
+# Soroban's on-chain VM is strict about the wasm it accepts, so the release
+# profile here matches what Soroban contracts need: `panic = "abort"` (no
+# unwinding support on-chain), `overflow-checks` on (integer overflow must be
+# a typed contract error, never silently wrap), and `lto`/`codegen-units = 1`
+# for the smallest possible wasm.
+[profile.release]
+opt-level        = "z"
+overflow-checks  = true
+debug            = 0
+strip            = "symbols"
+debug-assertions = false
+panic            = "abort"
+codegen-units    = 1
+lto              = true
+
+# Separate profile used by cargo-fuzz.
+[profile.fuzz]
+inherits        = "dev"
+opt-level       = 1
+overflow-checks = true

@@ -144,6 +144,8 @@ Includes a property-based test suite (`test.rs`).
 
 ```
 .
+├── Cargo.toml            # workspace root — members: explorer, ticket
+├── Cargo.lock
 ├── explorer/            # octraban-contract — registry & event ledger
 │   └── src/lib.rs
 ├── ticket/              # ticket — event ticketing
@@ -178,7 +180,7 @@ These contracts pin **`soroban-sdk 21`**, whose on-chain VM rejects the WebAssem
 The working pipeline is therefore **build normally, then lower with `wasm-opt`**:
 
 ```bash
-cargo build --release --target wasm32-unknown-unknown
+cargo build --release --target wasm32-unknown-unknown --workspace
 
 wasm-opt <in.wasm> -o <out.wasm> \
   --disable-reference-types --disable-multivalue \
@@ -191,8 +193,14 @@ stellar contract deploy --wasm <out.wasm> --source octraban-deployer --network t
 The retained features (`bulk-memory`, `sign-ext`, `mutable-globals`) are required because the contracts use `memory.copy`; only `reference-types` and `multivalue` are stripped. `build-and-deploy.sh` encapsulates all of this.
 
 ### Testing
+`explorer` and `ticket` share a single Cargo workspace rooted at the repo root, so `build`, `test`, `clippy`, and `fmt` all run across both crates from one place:
 ```bash
-cd ticket && cargo test          # property-based tests for the ticket contract
+cargo build --release --target wasm32-unknown-unknown --workspace   # both crates
+cargo test --workspace                                              # both crates' test suites
+cargo clippy --workspace --lib --bins
+cargo fmt --all
+
+cargo test -p ticket                                                 # a single crate
 ```
 
 ### Fuzzing

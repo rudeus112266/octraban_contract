@@ -205,20 +205,10 @@ fn test_extreme_i128_values_return_typed_error() {
     let new_owner = Address::generate(&env);
 
     // i128::MIN — should be caught as NegativePrice
-    let result = client.try_transfer_ticket(
-        &buyer,
-        &new_owner,
-        &0u64,
-        &i128::MIN,
-    );
+    let result = client.try_transfer_ticket(&buyer, &new_owner, &0u64, &i128::MIN);
     assert_eq!(result, Err(Ok(Error::NegativePrice)));
 
     // i128::MAX — above max_resale_price ceiling, so PriceExceedsCeiling
-    let result = client.try_transfer_ticket(
-        &buyer,
-        &new_owner,
-        &0u64,
-        &i128::MAX,
-    );
+    let result = client.try_transfer_ticket(&buyer, &new_owner, &0u64, &i128::MAX);
     assert_eq!(result, Err(Ok(Error::PriceExceedsCeiling)));
 }

@@ -1,7 +1,5 @@
 #![cfg(test)]
-use soroban_explorer_contract::{
-    ContractMeta, EventInput, ExplorerContract, ExplorerContractClient,
-};
+use octraban_contract::{ContractMeta, EventInput, ExplorerContract, ExplorerContractClient};
 use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, MockAuth, MockAuthInvoke},
@@ -331,7 +329,7 @@ fn test_deregister_by_stranger() {
 #[test]
 fn test_init_custom_cap() {
     let env = Env::default();
-    let id = env.register_contract(None, soroban_explorer_contract::ExplorerContract);
+    let id = env.register_contract(None, octraban_contract::ExplorerContract);
     let client = ExplorerContractClient::new(&env, &id);
     let admin = Address::generate(&env);
     env.mock_all_auths();

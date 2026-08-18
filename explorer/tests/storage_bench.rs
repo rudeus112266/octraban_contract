@@ -4,7 +4,7 @@
 
 #[cfg(test)]
 mod storage_bench {
-    use soroban_explorer_contract::{EventInput, ExplorerContract, ExplorerContractClient};
+    use octraban_contract::{EventInput, ExplorerContract, ExplorerContractClient};
     use soroban_sdk::{
         symbol_short, testutils::Address as _, Address, Bytes, BytesN, Env, String, Vec,
     };

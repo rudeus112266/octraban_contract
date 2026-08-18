@@ -304,7 +304,8 @@ impl ExplorerContract {
         env.storage()
             .instance()
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
-        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
+        env.deployer()
+            .update_current_contract_wasm(new_wasm_hash.clone());
         // Topics: (upgrade,). Data: (version, new_wasm_hash). See docs/EVENTS.md.
         env.events().publish(
             (symbol_short!("upgrade"),),
@@ -961,10 +962,7 @@ mod tests {
         client.register_contract(&admin, &cid, &meta);
 
         let (topics, data) = last_event(&env, &client.address);
-        assert_eq!(
-            topics,
-            (symbol_short!("c_reg"), cid.clone()).into_val(&env)
-        );
+        assert_eq!(topics, (symbol_short!("c_reg"), cid.clone()).into_val(&env));
         let decoded: (u32, Address, u32, u32, String) = data.into_val(&env);
         assert_eq!(
             decoded,
@@ -1002,13 +1000,13 @@ mod tests {
             (symbol_short!("c_abiu"), cid.clone()).into_val(&env)
         );
         let abiu_decoded: (u32, u32, u32, u32) = abiu_data.into_val(&env);
-        assert_eq!(abiu_decoded, (EVENT_VERSION, 0u32, 1u32, env.ledger().sequence()));
+        assert_eq!(
+            abiu_decoded,
+            (EVENT_VERSION, 0u32, 1u32, env.ledger().sequence())
+        );
 
         let (upd_topics, upd_data) = events.get(events.len() - 1).unwrap();
-        assert_eq!(
-            upd_topics,
-            (symbol_short!("c_upd"), cid).into_val(&env)
-        );
+        assert_eq!(upd_topics, (symbol_short!("c_upd"), cid).into_val(&env));
         let upd_decoded: (u32, Address, u32, u32, u32) = upd_data.into_val(&env);
         assert_eq!(
             upd_decoded,
@@ -1125,7 +1123,7 @@ mod tests {
             client.submit_event(&admin, &base);
         }
         // Request a limit far above MAX_PAGE_SIZE — only the available 5 are returned.
-        let page = client.get_events(&0u64, &MAX_PAGE_SIZE + 1000);
+        let page = client.get_events(&0u64, &(MAX_PAGE_SIZE + 1000));
         assert_eq!(page.len(), 5);
     }
 
@@ -1144,14 +1142,14 @@ mod tests {
 
         // Page through with a small limit.
         let mut cursor: u64 = 0;
-        let mut all_seqs: Vec<u64> = Vec::new();
+        let mut all_seqs: Vec<u64> = Vec::new(&env);
         loop {
             let page = client.get_events(&cursor, &3u32);
             if page.is_empty() {
                 break;
             }
             for ev in page.iter() {
-                all_seqs.push(ev.seq);
+                all_seqs.push_back(ev.seq);
             }
             // Advance cursor past the last returned event.
             cursor = page.get(page.len() - 1).unwrap().seq + 1;
@@ -1160,7 +1158,7 @@ mod tests {
         assert_eq!(all_seqs.len(), 10);
         // Verify every seq from 0..10 appears exactly once.
         for expected in 0..10u64 {
-            assert_eq!(all_seqs.iter().filter(|&&s| s == expected).count(), 1);
+            assert_eq!(all_seqs.iter().filter(|&s| s == expected).count(), 1);
         }
     }
 
@@ -1331,10 +1329,7 @@ mod tests {
         client.deregister_contract(&admin, &cid);
 
         let (topics, data) = last_event(&env, &client.address);
-        assert_eq!(
-            topics,
-            (symbol_short!("c_dereg"), cid).into_val(&env)
-        );
+        assert_eq!(topics, (symbol_short!("c_dereg"), cid).into_val(&env));
         let decoded: (u32, Address, u32) = data.into_val(&env);
         assert_eq!(decoded, (EVENT_VERSION, admin, env.ledger().sequence()));
     }
@@ -1350,10 +1345,7 @@ mod tests {
         client.transfer_admin(&admin, &new_admin);
 
         let (topics, data) = last_event(&env, &client.address);
-        assert_eq!(
-            topics,
-            (symbol_short!("adm_xfer"), admin).into_val(&env)
-        );
+        assert_eq!(topics, (symbol_short!("adm_xfer"), admin).into_val(&env));
         let decoded: (u32, Address) = data.into_val(&env);
         assert_eq!(decoded, (EVENT_VERSION, new_admin));
     }

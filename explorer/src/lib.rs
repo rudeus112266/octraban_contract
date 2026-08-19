@@ -39,6 +39,9 @@ pub struct VersionKey {
 #[contracttype]
 pub enum DataKey {
     Admin,
+    /// Address nominated by the current admin via `transfer_admin`, pending
+    /// its own `accept_admin` call. Absent when there is no pending transfer.
+    PendingAdmin,
     Contract(BytesN<32>),
     /// Event log entries use persistent storage to ensure they survive ledger archival.
     /// Temporary storage would expire when TTL reaches zero, causing silent data loss.
@@ -199,22 +202,75 @@ impl ExplorerContract {
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
     }
 
-    /// Transfer admin rights to a new address (current admin only).
+    /// Nominate a new admin (current admin only). This is step one of a
+    /// two-step handover: it does *not* change the active admin, so the
+    /// current admin keeps control until the nominee calls `accept_admin`.
+    /// A pending nomination can be withdrawn with `cancel_admin_transfer`.
+    /// This guards against permanently bricking the registry by transferring
+    /// to a mistyped or uncontrolled address — every privileged call is
+    /// gated on the active admin, and there is no other recovery path.
     pub fn transfer_admin(env: Env, caller: Address, new_admin: Address) {
         caller.require_auth();
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         if caller != admin {
             panic_with_error!(&env, Error::Unauthorized);
         }
-        env.storage().instance().set(&DataKey::Admin, &new_admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingAdmin, &new_admin);
         env.storage()
             .instance()
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
-        // Topics: (adm_xfer, caller). Data: (version, new_admin). See docs/EVENTS.md.
+        // Topics: (adm_nom, caller). Data: (version, new_admin). See docs/EVENTS.md.
         env.events().publish(
-            (symbol_short!("adm_xfer"), caller),
+            (symbol_short!("adm_nom"), caller),
             (EVENT_VERSION, new_admin),
         );
+    }
+
+    /// Accept a pending admin nomination (nominee only). This is step two of
+    /// the two-step handover: it promotes `caller` to active admin and
+    /// clears the pending nomination.
+    /// Panics with `NotFound` if there is no pending nomination, or
+    /// `Unauthorized` if `caller` is not the nominated address.
+    pub fn accept_admin(env: Env, caller: Address) {
+        caller.require_auth();
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingAdmin)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::NotFound));
+        if caller != pending {
+            panic_with_error!(&env, Error::Unauthorized);
+        }
+        env.storage().instance().set(&DataKey::Admin, &caller);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+        // Topics: (adm_acc, caller). Data: (version,). See docs/EVENTS.md.
+        env.events()
+            .publish((symbol_short!("adm_acc"), caller), (EVENT_VERSION,));
+    }
+
+    /// Cancel a pending admin nomination (current admin only).
+    /// Panics with `NotFound` if there is no pending nomination.
+    pub fn cancel_admin_transfer(env: Env, caller: Address) {
+        caller.require_auth();
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        if caller != admin {
+            panic_with_error!(&env, Error::Unauthorized);
+        }
+        if !env.storage().instance().has(&DataKey::PendingAdmin) {
+            panic_with_error!(&env, Error::NotFound);
+        }
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+        // Topics: (adm_cncl, caller). Data: (version,). See docs/EVENTS.md.
+        env.events()
+            .publish((symbol_short!("adm_cncl"), caller), (EVENT_VERSION,));
     }
 
     /// Update the ring-buffer capacity (admin only).
@@ -1334,10 +1390,10 @@ mod tests {
         assert_eq!(decoded, (EVENT_VERSION, admin, env.ledger().sequence()));
     }
 
-    // ── transfer_admin ────────────────────────────────────────────────────────
+    // ── transfer_admin / accept_admin / cancel_admin_transfer ───────────────────
 
     #[test]
-    fn test_transfer_admin_emits_adm_xfer_event() {
+    fn test_transfer_admin_emits_adm_nom_event() {
         let (env, client) = setup();
         let admin = Address::generate(&env);
         let new_admin = Address::generate(&env);
@@ -1345,9 +1401,248 @@ mod tests {
         client.transfer_admin(&admin, &new_admin);
 
         let (topics, data) = last_event(&env, &client.address);
-        assert_eq!(topics, (symbol_short!("adm_xfer"), admin).into_val(&env));
+        assert_eq!(topics, (symbol_short!("adm_nom"), admin).into_val(&env));
         let decoded: (u32, Address) = data.into_val(&env);
         assert_eq!(decoded, (EVENT_VERSION, new_admin));
+    }
+
+    #[test]
+    fn test_admin_retains_control_after_nomination() {
+        let (env, client) = setup();
+        let admin = Address::generate(&env);
+        let new_admin = Address::generate(&env);
+        client.init(&admin, &0u32);
+        client.transfer_admin(&admin, &new_admin);
+
+        // The nomination alone must not change who is in control.
+        let cid: BytesN<32> = BytesN::from_array(&env, &[9u8; 32]);
+        client.submit_event(
+            &admin,
+            &EventInput {
+                contract_id: cid,
+                function: symbol_short!("ping"),
+                ledger: 1u32,
+                description: String::from_str(&env, "old admin still in control"),
+                raw_topics: Vec::new(&env),
+                raw_data: Bytes::new(&env),
+            },
+        );
+        assert_eq!(client.event_count(), 1u64);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_nominee_cannot_act_before_accepting() {
+        let (env, client) = setup();
+        let admin = Address::generate(&env);
+        let new_admin = Address::generate(&env);
+        client.init(&admin, &0u32);
+        client.transfer_admin(&admin, &new_admin);
+
+        let cid: BytesN<32> = BytesN::from_array(&env, &[10u8; 32]);
+        client.submit_event(
+            &new_admin,
+            &EventInput {
+                contract_id: cid,
+                function: symbol_short!("ping"),
+                ledger: 1u32,
+                description: String::from_str(&env, "nominee jumps the gun"),
+                raw_topics: Vec::new(&env),
+                raw_data: Bytes::new(&env),
+            },
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_transfer_admin_unauthorized() {
+        let (env, client) = setup();
+        let admin = Address::generate(&env);
+        let attacker = Address::generate(&env);
+        let new_admin = Address::generate(&env);
+        client.init(&admin, &0u32);
+        client.transfer_admin(&attacker, &new_admin);
+    }
+
+    #[test]
+    fn test_accept_admin_emits_adm_acc_event() {
+        let (env, client) = setup();
+        let admin = Address::generate(&env);
+        let new_admin = Address::generate(&env);
+        client.init(&admin, &0u32);
+        client.transfer_admin(&admin, &new_admin);
+        client.accept_admin(&new_admin);
+
+        let (topics, data) = last_event(&env, &client.address);
+        assert_eq!(topics, (symbol_short!("adm_acc"), new_admin).into_val(&env));
+        let decoded: (u32,) = data.into_val(&env);
+        assert_eq!(decoded, (EVENT_VERSION,));
+    }
+
+    #[test]
+    fn test_accept_admin_promotes_new_admin() {
+        let (env, client) = setup();
+        let admin = Address::generate(&env);
+        let new_admin = Address::generate(&env);
+        client.init(&admin, &0u32);
+        client.transfer_admin(&admin, &new_admin);
+        client.accept_admin(&new_admin);
+
+        let cid: BytesN<32> = BytesN::from_array(&env, &[11u8; 32]);
+        client.submit_event(
+            &new_admin,
+            &EventInput {
+                contract_id: cid,
+                function: symbol_short!("ping"),
+                ledger: 1u32,
+                description: String::from_str(&env, "new admin test"),
+                raw_topics: Vec::new(&env),
+                raw_data: Bytes::new(&env),
+            },
+        );
+        assert_eq!(client.event_count(), 1u64);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_old_admin_loses_access_after_accept() {
+        let (env, client) = setup();
+        let admin = Address::generate(&env);
+        let new_admin = Address::generate(&env);
+        client.init(&admin, &0u32);
+        client.transfer_admin(&admin, &new_admin);
+        client.accept_admin(&new_admin);
+
+        let cid: BytesN<32> = BytesN::from_array(&env, &[12u8; 32]);
+        client.submit_event(
+            &admin,
+            &EventInput {
+                contract_id: cid,
+                function: symbol_short!("ping"),
+                ledger: 1u32,
+                description: String::from_str(&env, "stale admin attempt"),
+                raw_topics: Vec::new(&env),
+                raw_data: Bytes::new(&env),
+            },
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_only_pending_admin_can_accept() {
+        let (env, client) = setup();
+        let admin = Address::generate(&env);
+        let new_admin = Address::generate(&env);
+        let attacker = Address::generate(&env);
+        client.init(&admin, &0u32);
+        client.transfer_admin(&admin, &new_admin);
+        client.accept_admin(&attacker);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_accept_admin_without_pending_panics() {
+        let (env, client) = setup();
+        let admin = Address::generate(&env);
+        let stranger = Address::generate(&env);
+        client.init(&admin, &0u32);
+        client.accept_admin(&stranger);
+    }
+
+    #[test]
+    fn test_cancel_admin_transfer_emits_adm_cncl_event() {
+        let (env, client) = setup();
+        let admin = Address::generate(&env);
+        let new_admin = Address::generate(&env);
+        client.init(&admin, &0u32);
+        client.transfer_admin(&admin, &new_admin);
+        client.cancel_admin_transfer(&admin);
+
+        let (topics, data) = last_event(&env, &client.address);
+        assert_eq!(topics, (symbol_short!("adm_cncl"), admin).into_val(&env));
+        let decoded: (u32,) = data.into_val(&env);
+        assert_eq!(decoded, (EVENT_VERSION,));
+    }
+
+    #[test]
+    fn test_current_admin_can_cancel_pending_transfer() {
+        let (env, client) = setup();
+        let admin = Address::generate(&env);
+        let new_admin = Address::generate(&env);
+        client.init(&admin, &0u32);
+        client.transfer_admin(&admin, &new_admin);
+        client.cancel_admin_transfer(&admin);
+
+        // Old admin is still in control...
+        let cid: BytesN<32> = BytesN::from_array(&env, &[13u8; 32]);
+        client.submit_event(
+            &admin,
+            &EventInput {
+                contract_id: cid,
+                function: symbol_short!("ping"),
+                ledger: 1u32,
+                description: String::from_str(&env, "admin after cancel"),
+                raw_topics: Vec::new(&env),
+                raw_data: Bytes::new(&env),
+            },
+        );
+        assert_eq!(client.event_count(), 1u64);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_accept_admin_after_cancel_panics() {
+        let (env, client) = setup();
+        let admin = Address::generate(&env);
+        let new_admin = Address::generate(&env);
+        client.init(&admin, &0u32);
+        client.transfer_admin(&admin, &new_admin);
+        client.cancel_admin_transfer(&admin);
+        client.accept_admin(&new_admin);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_cancel_admin_transfer_unauthorized() {
+        let (env, client) = setup();
+        let admin = Address::generate(&env);
+        let new_admin = Address::generate(&env);
+        let attacker = Address::generate(&env);
+        client.init(&admin, &0u32);
+        client.transfer_admin(&admin, &new_admin);
+        client.cancel_admin_transfer(&attacker);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_cancel_admin_transfer_without_pending_panics() {
+        let (env, client) = setup();
+        let admin = Address::generate(&env);
+        client.init(&admin, &0u32);
+        client.cancel_admin_transfer(&admin);
+    }
+
+    #[test]
+    fn test_transfer_admin_to_self_then_accept_is_noop() {
+        let (env, client) = setup();
+        let admin = Address::generate(&env);
+        client.init(&admin, &0u32);
+        client.transfer_admin(&admin, &admin);
+        client.accept_admin(&admin);
+
+        let cid: BytesN<32> = BytesN::from_array(&env, &[14u8; 32]);
+        client.submit_event(
+            &admin,
+            &EventInput {
+                contract_id: cid,
+                function: symbol_short!("ping"),
+                ledger: 1u32,
+                description: String::from_str(&env, "self transfer test"),
+                raw_topics: Vec::new(&env),
+                raw_data: Bytes::new(&env),
+            },
+        );
+        assert_eq!(client.event_count(), 1u64);
     }
 
     #[test]
@@ -1367,85 +1662,6 @@ mod tests {
         assert_eq!(unpaused_topics, (symbol_short!("unpaused"),).into_val(&env));
         let unpaused_decoded: (u32,) = unpaused_data.into_val(&env);
         assert_eq!(unpaused_decoded, (EVENT_VERSION,));
-    }
-
-    #[test]
-    fn test_transfer_admin_success() {
-        let (env, client) = setup();
-        let admin = Address::generate(&env);
-        let new_admin = Address::generate(&env);
-        client.init(&admin, &0u32);
-        client.transfer_admin(&admin, &new_admin);
-
-        let cid: BytesN<32> = BytesN::from_array(&env, &[9u8; 32]);
-        client.submit_event(
-            &new_admin,
-            &EventInput {
-                contract_id: cid,
-                function: symbol_short!("ping"),
-                ledger: 1u32,
-                description: String::from_str(&env, "new admin test"),
-                raw_topics: Vec::new(&env),
-                raw_data: Bytes::new(&env),
-            },
-        );
-        assert_eq!(client.event_count(), 1u64);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_transfer_admin_unauthorized() {
-        let (env, client) = setup();
-        let admin = Address::generate(&env);
-        let attacker = Address::generate(&env);
-        let new_admin = Address::generate(&env);
-        client.init(&admin, &0u32);
-        client.transfer_admin(&attacker, &new_admin);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_old_admin_loses_access_after_transfer() {
-        let (env, client) = setup();
-        let admin = Address::generate(&env);
-        let new_admin = Address::generate(&env);
-        client.init(&admin, &0u32);
-        client.transfer_admin(&admin, &new_admin);
-
-        let cid: BytesN<32> = BytesN::from_array(&env, &[10u8; 32]);
-        client.submit_event(
-            &admin,
-            &EventInput {
-                contract_id: cid,
-                function: symbol_short!("ping"),
-                ledger: 1u32,
-                description: String::from_str(&env, "stale admin attempt"),
-                raw_topics: Vec::new(&env),
-                raw_data: Bytes::new(&env),
-            },
-        );
-    }
-
-    #[test]
-    fn test_transfer_admin_to_self_is_noop() {
-        let (env, client) = setup();
-        let admin = Address::generate(&env);
-        client.init(&admin, &0u32);
-        client.transfer_admin(&admin, &admin);
-
-        let cid: BytesN<32> = BytesN::from_array(&env, &[11u8; 32]);
-        client.submit_event(
-            &admin,
-            &EventInput {
-                contract_id: cid,
-                function: symbol_short!("ping"),
-                ledger: 1u32,
-                description: String::from_str(&env, "self transfer test"),
-                raw_topics: Vec::new(&env),
-                raw_data: Bytes::new(&env),
-            },
-        );
-        assert_eq!(client.event_count(), 1u64);
     }
 
     // ── upgrade ├──────────────────────────────────────────────────────────────
@@ -1491,6 +1707,7 @@ mod tests {
         let new_admin = Address::generate(&env);
         client.init(&admin, &0u32);
         client.transfer_admin(&admin, &new_admin);
+        client.accept_admin(&new_admin);
 
         let hash = BytesN::from_array(&env, &[11u8; 32]);
         client.upgrade(&new_admin, &hash);
@@ -1504,6 +1721,7 @@ mod tests {
         let new_admin = Address::generate(&env);
         client.init(&admin, &0u32);
         client.transfer_admin(&admin, &new_admin);
+        client.accept_admin(&new_admin);
 
         let hash = BytesN::from_array(&env, &[12u8; 32]);
         client.upgrade(&admin, &hash);

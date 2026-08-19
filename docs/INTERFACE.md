@@ -68,7 +68,7 @@ struct EventInput {          // submit_event argument; same shape as DecodedEven
 
 | Value | Variant | Meaning |
 |---|---|---|
-| 1 | `NotFound` | Requested contract/version/event does not exist |
+| 1 | `NotFound` | Requested contract/version/event does not exist, or `accept_admin`/`cancel_admin_transfer` called with no pending admin nomination |
 | 2 | `Unauthorized` | Caller is not the admin (or, where applicable, the registrant) |
 | 3 | `AlreadyExists` | `init` called twice, or `register_contract` called with an already-registered `contract_id` |
 | 4 | `BelowFloor` | `set_max_events` called with `new_max < MIN_MAX_EVENTS` (1,000) |
@@ -81,7 +81,9 @@ struct EventInput {          // submit_event argument; same shape as DecodedEven
 | Function | Args | Returns | Access |
 |---|---|---|---|
 | `init` | `admin: Address, max_events: u32` | `()` | Anyone, once (panics `AlreadyExists` on re-init) |
-| `transfer_admin` | `caller: Address, new_admin: Address` | `()` | Admin only |
+| `transfer_admin` | `caller: Address, new_admin: Address` | `()` | Admin only; nominates `new_admin` (step 1 of 2) — does **not** change the active admin |
+| `accept_admin` | `caller: Address` | `()` | Nominated address only; promotes `caller` to admin (step 2 of 2). Panics `NotFound` if no pending nomination |
+| `cancel_admin_transfer` | `caller: Address` | `()` | Admin only; withdraws a pending nomination. Panics `NotFound` if no pending nomination |
 | `set_max_events` | `caller: Address, new_max: u32` | `()` | Admin only |
 | `storage_utilisation` | — | `(u64, u32)` — `(current_event_count, max_events)` | Read-only |
 | `pause` | `caller: Address` | `()` | Admin only |

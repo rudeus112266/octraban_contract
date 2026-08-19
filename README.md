@@ -63,7 +63,9 @@ Both are `no_std`, built against **`soroban-sdk 21`**.
 | Function | Description |
 |---|---|
 | `init(admin, max_events)` | Initialise the contract with an admin and the event-buffer capacity |
-| `transfer_admin(caller, new_admin)` | Hand admin rights to a new address |
+| `transfer_admin(caller, new_admin)` | Nominate a new admin (step 1 of 2) — does not change the active admin |
+| `accept_admin(caller)` | Nominee accepts, becoming the active admin (step 2 of 2) |
+| `cancel_admin_transfer(caller)` | Admin withdraws a pending nomination |
 | `set_max_events(caller, new_max)` | Resize the event ring buffer |
 | `pause(caller)` / `unpause(caller)` | Emergency freeze / resume of state-changing calls |
 | `is_paused() -> bool` | Query pause state |
@@ -100,7 +102,7 @@ Soroban archives an instance or persistent entry once its TTL (time-to-live, in 
 
 | Storage | Entries | Bump horizon | Bumped on |
 |---|---|---|---|
-| Instance | admin, pause flag, `MaxEvents`, `EventSeq` | 30 days (`INSTANCE_BUMP_AMOUNT`) | Every state-changing call: `init`, `transfer_admin`, `set_max_events`, `pause`, `unpause`, `upgrade`, `register_contract`, `update_contract`, `deregister_contract`, `submit_event` |
+| Instance | admin, pause flag, `MaxEvents`, `EventSeq` | 30 days (`INSTANCE_BUMP_AMOUNT`) | Every state-changing call: `init`, `transfer_admin`, `accept_admin`, `cancel_admin_transfer`, `set_max_events`, `pause`, `unpause`, `upgrade`, `register_contract`, `update_contract`, `deregister_contract`, `submit_event` |
 | Persistent — registry | `Contract`, `ContractVersion` | 90 days (`REGISTRY_BUMP_AMOUNT`) | Write (`register_contract`, `update_contract`) **and** read (`get_contract`, `get_contract_version`, `get_latest_contract`) |
 | Persistent — event ring buffer | `EventLog` slots | 7 days (`EVENT_BUMP_AMOUNT`) | Write (`submit_event`) **and** single-item read (`get_event`) |
 

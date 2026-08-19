@@ -25,24 +25,32 @@ indexers can filter per-function without decoding the data payload.
 
 | # | Symbol | Emitted by | Topics | Data (in order) |
 |---|--------|-----------|--------|------------------|
-| 1 | `adm_xfer`  | `transfer_admin`     | `(adm_xfer, caller: Address)` | `(version: u32, new_admin: Address)` |
-| 2 | `paused`    | `pause`              | `(paused,)` | `(version: u32,)` |
-| 3 | `unpaused`  | `unpause`            | `(unpaused,)` | `(version: u32,)` |
-| 4 | `upgrade`   | `upgrade`            | `(upgrade,)` | `(version: u32, new_wasm_hash: BytesN<32>)` |
-| 5 | `c_reg`     | `register_contract`  | `(c_reg, contract_id: BytesN<32>)` | `(version: u32, registered_by: Address, contract_version: u32, ledger: u32, name: String)` |
-| 6 | `c_abiu`    | `update_contract`    | `(c_abiu, contract_id: BytesN<32>)` | `(version: u32, old_abi_version: u32, new_abi_version: u32, ledger: u32)` |
-| 7 | `c_upd`     | `update_contract`    | `(c_upd, contract_id: BytesN<32>)` | `(version: u32, caller: Address, old_contract_version: u32, new_contract_version: u32, ledger: u32)` |
-| 8 | `c_dereg`   | `deregister_contract`| `(c_dereg, contract_id: BytesN<32>)` | `(version: u32, caller: Address, ledger: u32)` |
-| 9 | `ev_sub`    | `submit_event`       | `(ev_sub, contract_id: BytesN<32>, function: Symbol)` | `(version: u32, seq: u64, ledger: u32)` |
-| 10 | `cap_hit`  | `submit_event` (only when the ring buffer evicts an entry) | `(cap_hit,)` | `(version: u32, evicted_seq: u64, seq: u64)` |
-| 11 | `decoded` | `submit_event`       | `(decoded, contract_id: BytesN<32>, function: Symbol)` | `(version: u32, description: String)` |
+| 1 | `adm_nom`   | `transfer_admin`     | `(adm_nom, caller: Address)` | `(version: u32, new_admin: Address)` |
+| 2 | `adm_acc`   | `accept_admin`       | `(adm_acc, caller: Address)` | `(version: u32,)` |
+| 3 | `adm_cncl`  | `cancel_admin_transfer` | `(adm_cncl, caller: Address)` | `(version: u32,)` |
+| 4 | `paused`    | `pause`              | `(paused,)` | `(version: u32,)` |
+| 5 | `unpaused`  | `unpause`            | `(unpaused,)` | `(version: u32,)` |
+| 6 | `upgrade`   | `upgrade`            | `(upgrade,)` | `(version: u32, new_wasm_hash: BytesN<32>)` |
+| 7 | `c_reg`     | `register_contract`  | `(c_reg, contract_id: BytesN<32>)` | `(version: u32, registered_by: Address, contract_version: u32, ledger: u32, name: String)` |
+| 8 | `c_abiu`    | `update_contract`    | `(c_abiu, contract_id: BytesN<32>)` | `(version: u32, old_abi_version: u32, new_abi_version: u32, ledger: u32)` |
+| 9 | `c_upd`     | `update_contract`    | `(c_upd, contract_id: BytesN<32>)` | `(version: u32, caller: Address, old_contract_version: u32, new_contract_version: u32, ledger: u32)` |
+| 10 | `c_dereg`  | `deregister_contract`| `(c_dereg, contract_id: BytesN<32>)` | `(version: u32, caller: Address, ledger: u32)` |
+| 11 | `ev_sub`   | `submit_event`       | `(ev_sub, contract_id: BytesN<32>, function: Symbol)` | `(version: u32, seq: u64, ledger: u32)` |
+| 12 | `cap_hit`  | `submit_event` (only when the ring buffer evicts an entry) | `(cap_hit,)` | `(version: u32, evicted_seq: u64, seq: u64)` |
+| 13 | `decoded` | `submit_event`       | `(decoded, contract_id: BytesN<32>, function: Symbol)` | `(version: u32, description: String)` |
 
 Notes:
-- `contract_version` (events 5, 7) is `ContractMeta.version`, the caller-supplied
+- `contract_version` (events 7, 9) is `ContractMeta.version`, the caller-supplied
   schema version — distinct from `abi_version`, which the contract manages
   internally and which is what `c_abiu` reports.
 - `update_contract` always emits `c_abiu` immediately followed by `c_upd` in the
   same call, in that order.
+- Admin handover is two-step (Issue #27): `transfer_admin` only nominates a new
+  admin (`adm_nom`) — it does not change who is in control. The nominee must
+  call `accept_admin` (`adm_acc`) to actually take over; until then the current
+  admin can call `cancel_admin_transfer` (`adm_cncl`) to withdraw the nomination.
+  This avoids permanently bricking the registry via a mistyped or uncontrolled
+  `new_admin`.
 - `submit_event` always emits `ev_sub`, then `cap_hit` only if the ring buffer is
   full and about to evict the oldest entry, then always `decoded` — in that order.
 - Prior to this reference, `register_contract` additionally emitted a second,

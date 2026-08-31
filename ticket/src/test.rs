@@ -212,3 +212,43 @@ fn test_extreme_i128_values_return_typed_error() {
     let result = client.try_transfer_ticket(&buyer, &new_owner, &0u64, &i128::MAX);
     assert_eq!(result, Err(Ok(Error::PriceExceedsCeiling)));
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 4. MAX-SUPPLY ENFORCEMENT (#30)
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_mint_rejects_once_sold_out() {
+    let (env, client, organizer) = setup_with_capacity(2);
+    let buyer = Address::generate(&env);
+
+    client.mint_ticket(&organizer, &buyer);
+    client.mint_ticket(&organizer, &buyer);
+    assert_eq!(client.tickets_sold(), 2);
+
+    let result = client.try_mint_ticket(&organizer, &buyer);
+    assert_eq!(result, Err(Ok(Error::SoldOut)));
+}
+
+#[test]
+fn test_remaining_supply_decreases_as_tickets_are_minted() {
+    let (env, client, organizer) = setup_with_capacity(3);
+    let buyer = Address::generate(&env);
+
+    assert_eq!(client.max_supply(), 3);
+    assert_eq!(client.remaining_supply(), 3);
+
+    client.mint_ticket(&organizer, &buyer);
+    assert_eq!(client.remaining_supply(), 2);
+
+    client.mint_ticket(&organizer, &buyer);
+    assert_eq!(client.remaining_supply(), 1);
+
+    client.mint_ticket(&organizer, &buyer);
+    assert_eq!(client.remaining_supply(), 0);
+
+    assert_eq!(
+        client.try_mint_ticket(&organizer, &buyer),
+        Err(Ok(Error::SoldOut))
+    );
+}

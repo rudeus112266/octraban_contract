@@ -16,6 +16,14 @@ const MAX_TIX: Symbol = symbol_short!("MAX_TIX");
 const PRICE: Symbol = symbol_short!("PRICE");
 const NEXT_ID: Symbol = symbol_short!("NEXT_ID");
 
+// ── Storage TTL policy ───────────────────────────────────────────────────────
+// Ledger close time is ~5s, so one day is ~17,280 ledgers. Instance storage
+// (admin, price, supply cap, next id) backs every mint, so it is bumped to a
+// 30-day horizon on every mint.
+const LEDGERS_PER_DAY: u32 = 17_280;
+const INSTANCE_BUMP_AMOUNT: u32 = 30 * LEDGERS_PER_DAY;
+const INSTANCE_LIFETIME_THRESHOLD: u32 = INSTANCE_BUMP_AMOUNT - LEDGERS_PER_DAY;
+
 // ── Data types ────────────────────────────────────────────────────────────────
 
 #[contracttype]
@@ -47,6 +55,7 @@ pub enum Error {
     NegativePrice = 4,
     PriceOverflow = 5,
     PriceExceedsCeiling = 6,
+    SoldOut = 7,
 }
 
 // ── Contract ──────────────────────────────────────────────────────────────────
@@ -88,7 +97,8 @@ impl TicketContract {
     }
 
     /// Mint a ticket to a recipient. Only admin (organizer) can call this.
-    /// Returns `Error::NotInitialized` if called before `initialize`.
+    /// Returns `Error::NotInitialized` if called before `initialize`, or
+    /// `Error::SoldOut` once `tickets_sold` reaches the configured `max_tickets`.
     pub fn mint_ticket(env: Env, organizer: Address, recipient: Address) -> Result<u64, Error> {
         organizer.require_auth();
         let admin: Address = env
@@ -100,7 +110,9 @@ impl TicketContract {
 
         let max: u64 = env.storage().instance().get(&MAX_TIX).unwrap();
         let next_id: u64 = env.storage().instance().get(&NEXT_ID).unwrap();
-        assert!(next_id < max, "sold out");
+        if next_id >= max {
+            return Err(Error::SoldOut);
+        }
 
         let price: i128 = env.storage().instance().get(&PRICE).unwrap();
         let max_resale: i128 = env
@@ -125,6 +137,9 @@ impl TicketContract {
 
         env.storage().persistent().set(&next_id, &ticket);
         env.storage().instance().set(&NEXT_ID, &(next_id + 1));
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
 
         env.events()
             .publish((symbol_short!("MINTED"), recipient), next_id);
@@ -210,6 +225,18 @@ impl TicketContract {
     /// Total tickets minted so far.
     pub fn tickets_sold(env: Env) -> u64 {
         env.storage().instance().get(&NEXT_ID).unwrap_or(0)
+    }
+
+    /// Configured maximum ticket supply, set at `initialize`.
+    pub fn max_supply(env: Env) -> u64 {
+        env.storage().instance().get(&MAX_TIX).unwrap_or(0)
+    }
+
+    /// Tickets still available to mint (`max_supply - tickets_sold`).
+    pub fn remaining_supply(env: Env) -> u64 {
+        let max: u64 = env.storage().instance().get(&MAX_TIX).unwrap_or(0);
+        let sold: u64 = env.storage().instance().get(&NEXT_ID).unwrap_or(0);
+        max.saturating_sub(sold)
     }
 
     /// Upgrade the running contract WASM (admin/organizer only).

@@ -132,17 +132,20 @@ struct Ticket {
 | 4 | `NegativePrice` | `price`, `max_resale_price`, or `sale_price` is negative |
 | 5 | `PriceOverflow` | Reserved; not currently returned by any entry point |
 | 6 | `PriceExceedsCeiling` | `transfer_ticket` called with `sale_price > ticket.max_resale_price` |
+| 7 | `SoldOut` | `mint_ticket` called once `tickets_sold` has reached `max_tickets` |
 
 ### Functions
 
 | Function | Args | Returns | Access |
 |---|---|---|---|
 | `initialize` | `admin: Address, event_name: String, max_tickets: u64, price: i128, max_resale_price: i128` | `Result<(), Error>` | Anyone, once |
-| `mint_ticket` | `organizer: Address, recipient: Address` | `Result<u64, Error>` — new ticket id | Admin/organizer only; panics `"sold out"` at `max_tickets` |
+| `mint_ticket` | `organizer: Address, recipient: Address` | `Result<u64, Error>` — new ticket id | Admin/organizer only; returns `Error::SoldOut` at `max_tickets` |
 | `transfer_ticket` | `from: Address, to: Address, ticket_id: u64, sale_price: i128` | `Result<(), Error>` | Ticket owner (`from`) only; panics if not owner or ticket not `Valid` |
 | `verify_ticket` | `verifier: Address, ticket_id: u64` | `Result<bool, Error>` — `true` if newly marked `Used` | Admin/organizer only |
 | `get_ticket` | `ticket_id: u64` | `Result<Ticket, Error>` | Read-only |
 | `tickets_sold` | — | `u64` | Read-only |
+| `max_supply` | — | `u64` — configured `max_tickets` | Read-only |
+| `remaining_supply` | — | `u64` — `max_supply - tickets_sold` | Read-only |
 | `upgrade` | `caller: Address, new_wasm_hash: BytesN<32>` | `Result<(), Error>` | Admin/organizer only |
 
 Events published: `MINTED (recipient) -> ticket_id`, `TRANSFER (from, to) -> ticket_id`,

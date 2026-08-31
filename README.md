@@ -136,6 +136,8 @@ This submits a restoration op that pays the current archival-recovery fee and br
 | `verify_ticket(verifier, ticket_id) -> bool` | Verify a ticket's validity at the gate |
 | `get_ticket(ticket_id) -> Ticket` | Fetch ticket details (errors if absent) |
 | `tickets_sold() -> u64` | Total tickets minted |
+| `max_supply() -> u64` | Configured maximum ticket supply |
+| `remaining_supply() -> u64` | Tickets still available to mint |
 | `upgrade(caller, new_wasm_hash)` | Admin-gated WASM upgrade |
 
 Includes a property-based test suite (`test.rs`).

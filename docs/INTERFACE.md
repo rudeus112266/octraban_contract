@@ -64,6 +64,29 @@ struct EventInput {          // submit_event argument; same shape as DecodedEven
 }
 ```
 
+### `ContractMeta` field constraints
+
+`register_contract` and `update_contract` validate the caller-supplied `meta`
+before writing it to persistent storage. Metadata that violates any of the
+bounds below is rejected with `Error::InvalidInput` (value 6); nothing is
+written. The same constraints apply to both entry points, so every registered
+or updated entry satisfies them.
+
+| Field | Constraint |
+|---|---|
+| `name` | Non-empty; at most `MAX_NAME_LEN` (64) bytes |
+| `description` | At most `MAX_DESCRIPTION_LEN` (1,024) bytes; may be empty |
+| `functions` | At most `MAX_FUNCTIONS` (64) entries |
+| `functions[i].name` | Non-empty `Symbol` |
+| `functions[i].description` | At most `MAX_DESCRIPTION_LEN` (1,024) bytes; may be empty |
+| `functions[i].params` | At most `MAX_PARAMS` (32) entries |
+| `functions[i].params[j].name` | Non-empty `Symbol` |
+| `functions[i].params[j].kind` | Non-empty `Symbol` |
+
+Lengths are measured in bytes of the UTF-8 encoding. `version`, `abi_version`,
+`min_ledger`, and `registered_by` are contract-managed and are not validated
+against caller input.
+
 ### Errors (`Error` enum)
 
 | Value | Variant | Meaning |
@@ -73,7 +96,7 @@ struct EventInput {          // submit_event argument; same shape as DecodedEven
 | 3 | `AlreadyExists` | `init` called twice, or `register_contract` called with an already-registered `contract_id` |
 | 4 | `BelowFloor` | `set_max_events` called with `new_max < MIN_MAX_EVENTS` (1,000) |
 | 5 | `ContractPaused` | State-changing call attempted while the contract is paused |
-| 6 | `InvalidInput` | `submit_event` called with an empty `function` symbol, or `get_events` called with `limit == 0` |
+| 6 | `InvalidInput` | `submit_event` called with an empty `function` symbol; `get_events` called with `limit == 0`; or `register_contract`/`update_contract` called with `ContractMeta` that violates the field constraints above |
 | 7 | `Unsupported` | Reserved; not currently returned by any entry point |
 
 ### Functions
@@ -90,8 +113,8 @@ struct EventInput {          // submit_event argument; same shape as DecodedEven
 | `unpause` | `caller: Address` | `()` | Admin only |
 | `upgrade` | `caller: Address, new_wasm_hash: BytesN<32>` | `()` | Admin only; panics `ContractPaused` if paused |
 | `is_paused` | — | `bool` | Read-only |
-| `register_contract` | `caller: Address, contract_id: BytesN<32>, meta: ContractMeta` | `()` | Admin only; panics `ContractPaused`/`AlreadyExists` |
-| `update_contract` | `caller: Address, contract_id: BytesN<32>, meta: ContractMeta` | `()` | Admin or original registrant; `meta.abi_version` must equal `existing.abi_version + 1` |
+| `register_contract` | `caller: Address, contract_id: BytesN<32>, meta: ContractMeta` | `()` | Admin only; panics `ContractPaused`/`AlreadyExists`/`InvalidInput` (invalid `meta`) |
+| `update_contract` | `caller: Address, contract_id: BytesN<32>, meta: ContractMeta` | `()` | Admin or original registrant; `meta.abi_version` must equal `existing.abi_version + 1`; panics `InvalidInput` (invalid `meta`) |
 | `get_contract` | `contract_id: BytesN<32>` | `Result<ContractMeta, Error>` | Read-only |
 | `get_contract_version` | `contract_id: BytesN<32>, abi_version: u32` | `Option<ContractMeta>` | Read-only |
 | `get_latest_contract` | `contract_id: BytesN<32>` | `Option<ContractMeta>` | Read-only; alias for `get_contract` returning `Option` instead of `Result` |
